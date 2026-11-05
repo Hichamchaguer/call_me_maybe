@@ -12,6 +12,7 @@ dependencies = [
     "numpy",
     "torch>=2.14.1",
     "transformers>=5.20.2",
+    "flake8>=7.4.1",
 ]
 
 # This fixes the command: uv run python -m src

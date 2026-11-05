@@ -22,5 +22,3 @@ def load_ft_definition(src: str):
         raise RuntimeError(f"File not found: {src}")
     except json.JSONDecodeError:
         raise RuntimeError(f"Invalid JSON format in file: {src}")
-
-
