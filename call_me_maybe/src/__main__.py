@@ -21,10 +21,17 @@ def parsing():
     )
 
     parser.add_argument(
+        '--functions_definition',
+        type=str,
+        help='Functions definition JSON file path',
+        default='data/input/functions_definition.json'
+    )
+
+    parser.add_argument(
         '--input',
         type=str,
         help='Input string to be processed',
-        default='data/input/functions_definition.json'
+        default='data/input/function_calling_tests.json'
     )
 
     parser.add_argument(
@@ -49,11 +56,17 @@ def main() -> None:
     args = parsing()
     print()
     ft_definition = load_ft_definition(
-        src='data/input/functions_definition.json'
-        )
+        src=args.functions_definition
+    )
     if not ft_definition:
         raise RuntimeError("No function definitions found.")
-    prompts = load_prompt(src='data/input/function_calling_tests.json')
+
+    # Create parameter schema lookup for type casting
+    param_types = {
+        func.name: {p_name: p_info.type for p_name, p_info in func.parameters.items()}
+        for func in ft_definition
+    }
+    prompts = load_prompt(args.input)
     if not prompts:
         raise RuntimeError("No prompts found in the provided JSON file.")
     generated_prompt = buildPrompt(ft_definition)
@@ -75,27 +88,61 @@ def main() -> None:
 
         generated_token = []
         generated_token.extend(model.encode('{"name": "')[0].tolist())
-        for _ in range(50):
+        load_json = {}
+        for _ in range(128):
             logits = model.get_logits_from_input_ids(
                 generated_list + generated_token
-                )
+            )
             next_token = get_next_token(logits, valid)
             generated_token.append(next_token)
 
             decoded = model.decode(generated_token)
-            is_valid_json = isValidJson(decoded)
-            if is_valid_json:
-                load_json = json.loads(is_valid_json)
-                break
+            valid_json_str = isValidJson(decoded)
+            if valid_json_str:
+                try:
+                    load_json = json.loads(valid_json_str)
+                    break
+                except Exception:
+                    pass
+
+        fn_name = load_json.get("name", "none")
+        raw_params = load_json.get("parameters", load_json.get("arguments", {}))
+
+        # Filter out keys not present in function signature and cast types
+        casted_params = {}
+        if isinstance(raw_params, dict) and fn_name in param_types:
+            allowed_params = param_types[fn_name]
+            for p_name, p_val in raw_params.items():
+                if p_name not in allowed_params:
+                    continue
+                expected_type = allowed_params[p_name]
+                if expected_type == "number":
+                    try:
+                        casted_params[p_name] = float(p_val)
+                    except (ValueError, TypeError):
+                        casted_params[p_name] = p_val
+                elif expected_type == "integer":
+                    try:
+                        casted_params[p_name] = int(p_val)
+                    except (ValueError, TypeError):
+                        casted_params[p_name] = p_val
+                elif expected_type == "string":
+                    casted_params[p_name] = str(p_val)
+                elif expected_type == "boolean":
+                    casted_params[p_name] = bool(p_val)
+                else:
+                    casted_params[p_name] = p_val
+        elif isinstance(raw_params, dict):
+            casted_params = raw_params
 
         res.append({
             "prompt": prompt,
-            "name": load_json.get("name", "none"),
-            "args": load_json.get("arguments", {})
+            "name": fn_name,
+            "parameters": casted_params
         })
 
-        if load_json.get("name", "none") != "none":
-            print(f'{load_json.get("name")}, {load_json.get("arguments")}')
+        if fn_name != "none":
+            print(f'{fn_name}, {casted_params}')
         else:
             print(f'No matching function found for prompt: "{prompt}"')
 

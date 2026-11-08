@@ -3,19 +3,37 @@ import json
 
 
 def isValidJson(_str: str):
-
     find = _str.find('{')
     if find == -1:
         return 0
 
     count = 0
+    in_string = False
+    escape = False
+
     for i in range(find, len(_str)):
-        if _str[i] == '{':
-            count += 1
-        if _str[i] == '}':
-            count -= 1
-        if count == 0:
-            return _str
+        ch = _str[i]
+        if escape:
+            escape = False
+            continue
+        if ch == '\\':
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if not in_string:
+            if ch == '{':
+                count += 1
+            elif ch == '}':
+                count -= 1
+                if count == 0:
+                    candidate = _str[find:i+1]
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except Exception:
+                        return 0
     return 0
 
 
@@ -41,25 +59,26 @@ def valid_token(vocab: dict):
 def buildPrompt(functionDifinition):
 
     prompt = [
-
-            "STRICT SYSTEM RULE: "
-            "Use ONLY a matching function from the list below.",
-            "If NO function matches the user's intent (even if types match),"
-            "set name: \"none\".",
-            "Never use an unrelated function for a different task.",
-            "Available functions:"
+        "You are an expert function calling assistant.",
+        "Your task is to call a function matching the user's intent.",
+        "If NO function matches the user's intent, set name: \"none\".",
+        "Never invent parameters. ONLY use the exact parameter names listed in the function definition.",
+        "For regex operations, use standard regular expressions (e.g. \\d+ for numbers, \\bword\\b for whole words, [aeiouAEIOU] for vowels).",
+        "",
+        "Available functions:"
     ]
 
     for func in functionDifinition:
-        get_next_line = ", ".join(
-            f'{name}, {info.type}'
+        params_str = ", ".join(
+            f"{name}: {info.type}"
             for name, info in func.parameters.items()
         )
-        prompt.append(f' -{func.name}({get_next_line}): {func.description}')
+        prompt.append(f"- {func.name}({params_str}): {func.description}")
+
     prompt.append(
-        '\nOUTPUT ONLY Valid JSON : {"name": <func>, "arguments": {<args>}}'
-        )
-    return prompt
+        '\nRespond ONLY with a JSON object: {"name": "<function_name>", "parameters": {<key_value_pairs>}}'
+    )
+    return "\n".join(prompt)
 
 
 def load_vocab(_model):
